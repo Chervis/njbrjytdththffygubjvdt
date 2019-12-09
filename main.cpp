@@ -12,11 +12,39 @@ Stat *carbonDioxide = new Stat("Amount of carbon dioxide");
 Stat *price = new Stat("Price of manufacturing, liquidation and running");
 Stat *electricity = new Stat("Total amount of electricity stored");
 
+struct Data
+{
+    std::string batteryName;
+    unsigned long numberOfCycles;
+    double efficiency;
+    double manufaturingPrice;
+    double manufacturingCO2;
+    double recyclingPrice;
+    double recyclingCO2;
+};
+
+struct Capacity
+{
+    double x5;
+    double x4;
+    double x3;
+    double x2;
+    double x1;
+};
+
 class Recycle : public Event
 {
+public:
+    double co2;
+    double priceOfRecycling;
+    Recycle(double co2,double priceOfRecycling)
+    {
+        this->co2=co2;
+        this->priceOfRecycling=priceOfRecycling;
+    }
     void Behavior()
     {
-        double co2=10.0;
+        (*price)(priceOfRecycling);
         (*carbonDioxide)(co2);
     }
 };
@@ -63,33 +91,50 @@ class Battery : public Process
 {
 public:
     Store *cycles;
-    unsigned long numberOfCycles;
-    double efficiency;
+    struct Data battery;
+    struct Capacity cap;
     double capacity;
-    double manufaturingPrice;
-    double manufacturingCO2;
-    double recyclingPrice;
-    double recyclingCO2;
-    Battery(unsigned long numberOfCycles,double efficiency,double manufaturingPrice,double manufacturingCO2)
+    double capacitydecrease;
+    Battery(struct Data battery,struct Capacity  cap)
     {
-        cycles = new Store("Počet cyklů",numberOfCycles);
-        this->efficiency=efficiency;
-        this->manufaturingPrice=manufaturingPrice;
-        this->manufacturingCO2=manufacturingCO2;
+        cycles = new Store("Počet cyklů",battery.numberOfCycles);
+        this->battery=battery;
+        this->cap=cap;
         capacity=1.0;
+        capacitydecrease=0;
     }
 
     void Behavior()
     {
-        (new Manufacture(manufacturingCO2,manufaturingPrice))->Activate();
+        (new Manufacture(battery.manufacturingCO2,battery.manufaturingPrice))->Activate();
         while (cycles->Used()<cycles->Capacity())
         {
+            if (cycles->Used()==0.8*cycles->Capacity())
+            {
+                capacitydecrease=(capacity-cap.x5)/(cycles->Capacity()/5);
+            }
+            else if (cycles->Used()==0.6*cycles->Capacity())
+            {
+                capacitydecrease=(cap.x3-cap.x4)/(cycles->Capacity()/5);
+            }
+            else if (cycles->Used()==0.4*cycles->Capacity())
+            {
+                capacitydecrease=(cap.x2-cap.x3)/(cycles->Capacity()/5);
+            }
+            else if (cycles->Used()==0.2*cycles->Capacity())
+            {
+                capacitydecrease=(cap.x1-cap.x2)/(cycles->Capacity()/5);
+            }
+            else if (cycles->Used()==0)
+            {
+                capacitydecrease=(capacity-cap.x1)/(cycles->Capacity()/5);
+            }
             Enter(*cycles,1);
-            (new Charge(efficiency,capacity))->Activate();
-            //capacity-=0.0005;
+            (new Charge(battery.efficiency,capacity))->Activate();
+            capacity-=capacitydecrease;
         }
 
-        (new Recycle())->Activate();
+        (new Recycle(battery.recyclingCO2,battery.recyclingPrice))->Activate();
     }
 };
 
@@ -100,7 +145,7 @@ public:
     {
         std::ifstream file(fileName);
 
-        std::vector<std::vector<std::string> > fieldOfBatteries;
+        std::vector<std::vector<std::string> > fileData;
         std::string line = "";
 
         while (getline(file, line))
@@ -119,13 +164,13 @@ public:
                 i++;
                 vec.push_back(item);
             }
-            fieldOfBatteries.push_back(vec);
+            fileData.push_back(vec);
 
         }
 
         file.close();
 
-        return fieldOfBatteries;
+        return fileData;
     }
 };
 
@@ -136,11 +181,8 @@ void Help()
 
 int main(int argc, char *argv[])
 {
-    std::string batteryName;
-    unsigned long numberOfCycles;
-    double efficiency;
-    double manufaturingPrice;
-    double manufacturingCO2;
+    struct Data  battery;
+    struct Capacity  cap;
 
     std::string fileName;
     if (argc>1)
@@ -154,23 +196,30 @@ int main(int argc, char *argv[])
     }
 
     CSVReader reader;
-    std::vector<std::vector<std::string> > fieldOfBatteries = reader.getData(fileName);
-    for(std::vector<std::string> line : fieldOfBatteries)
+    std::vector<std::vector<std::string> > fileData = reader.getData(fileName);
+    for(std::vector<std::string> line : fileData)
 	{
 		std::string::size_type sz;
-		batteryName=line[0];
-		manufaturingPrice= std::stod (line[1],&sz);
-		manufacturingCO2=std::stod (line[2],&sz);
-		numberOfCycles=std::stoul (line[3],nullptr,0);
-		efficiency=std::stod (line[4],&sz);
-		efficiency/=100;
+		battery.batteryName=line[0];
+		battery.manufaturingPrice= std::stod (line[1],&sz);
+		battery.manufacturingCO2=std::stod (line[2],&sz);
+		battery.numberOfCycles=std::stoul (line[3],nullptr,0);
+		battery.efficiency=std::stod (line[4],&sz);
+		battery.recyclingPrice= std::stod (line[5],&sz);
+		battery.recyclingCO2=std::stod (line[6],&sz);
+		cap.x1=std::stod (line[7],&sz);
+		cap.x2=std::stod (line[8],&sz);
+		cap.x3=std::stod (line[9],&sz);
+		cap.x4=std::stod (line[10],&sz);
+		cap.x5=std::stod (line[11],&sz);
 
-		Init(0,1000);
-        (new Battery(numberOfCycles,efficiency, manufaturingPrice,manufacturingCO2))->Activate();
+		Init(0,1);
+        (new Battery(battery,cap))->Activate();
         Run();
-        std::cout << batteryName << "\n";
-        std::cout << manufaturingPrice << " Kč cena výroby.\n";
-        std::cout << numberOfCycles << " počet cyklů.\n";
+        std::cout << battery.batteryName << "\n";
+        std::cout << battery.manufaturingPrice << " Kč cena výroby.\n";
+        std::cout << battery.recyclingPrice << " Kč cena likvidace.\n";
+        std::cout << battery.numberOfCycles << " počet cyklů.\n";
         std::cout << (*carbonDioxide).Sum() << " kg CO2.\n";
         std::cout << (*price).Sum() << " Kč.\n";
         std::cout << (*electricity).Sum() << " kWh celkem uloženo do baterie.\n";
